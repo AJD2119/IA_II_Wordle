@@ -1,0 +1,10 @@
+# API Wordle (FastAPI)
+fastapi==0.103.2
+uvicorn==0.23.2
+
+# Solveur Wordle (Flask + CORS)
+flask==2.3.3
+flask-cors==3.0.10
+
+# Requêtes HTTP pour le solveur ou frontend
+requests==2.31.0
