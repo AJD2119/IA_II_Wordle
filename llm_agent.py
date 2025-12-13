@@ -1,92 +1,90 @@
 # llm_agent.py
-import json
-from openai import OpenAI
-from config import OPENAI_API_KEY
+import os
 
-# --- Outils pour le LLM ---
+# ✅ Importer la clé depuis config.py
+try:
+    from config import GEMINI_API_KEY
+except ImportError:
+    GEMINI_API_KEY = None
+    print("⚠️ config.py not found or GEMINI_API_KEY not set.")
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    print("⚠️ google.generativeai not installed, fallback to CSP")
+
+# ---------- CSP helper ----------
 def get_best_csp_suggestions(solver, k=5):
+    """Récupère les meilleures suggestions du solver CSP."""
     return solver.suggest()[:k]
 
 def choose_word(word: str):
+    """Wrapper simple pour sélectionner un mot."""
     return {"chosen_word": word}
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "get_best_csp_suggestions",
-            "description": "Get the best candidate words from the CSP Wordle solver",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "k": {"type": "integer", "description": "Number of candidate words to retrieve"}
-                }
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "choose_word",
-            "description": "Select the final word to guess in Wordle",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "word": {"type": "string"}
-                },
-                "required": ["word"]
-            }
-        }
-    }
-]
-
+# ---------- Main LLM decision ----------
 def llm_choose_next_guess(solver, previous_steps):
-    # 🔹 Crée le client ici pour éviter les problèmes de thread/global
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    """
+    Sélectionne le prochain mot à deviner en utilisant Google Gemini.
+    Si Gemini non disponible, retourne la suggestion CSP classique.
+    """
 
-    system_prompt = """
+    candidates = get_best_csp_suggestions(solver, k=5)
+
+    if not candidates:
+        return solver.suggest()[0]
+
+    if not GEMINI_AVAILABLE or not GEMINI_API_KEY:
+        if not GEMINI_AVAILABLE:
+            print("⚠️ Gemini API not available, using CSP fallback")
+        if not GEMINI_API_KEY:
+            print("⚠️ GEMINI_API_KEY not set in config.py, using CSP fallback")
+        return candidates[0]
+
+    try:
+        # Configurer l'API Gemini avec la clé importée
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = f"""
 You are a Wordle-solving agent.
 
 Rules:
-- You must use CSP solver suggestions.
-- You must choose exactly one valid 5-letter word.
-- Your goal is to minimize the expected number of remaining candidates.
-"""
+- You MUST choose exactly ONE word from the list below
+- You are NOT allowed to invent a word
+- Your goal is to minimize the expected number of remaining candidates
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"""
 Previous guesses:
 {previous_steps}
 
 Remaining candidates: {len(solver.candidates)}
 
-Decide the next best guess.
-"""}
-    ]
+Candidate words:
+{candidates}
 
-    # --- Appel au LLM ---
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=messages,
-        functions=tools,
-        function_call="auto",
-        temperature=0
-    )
+Reply with ONLY the chosen word.
+"""
 
-    msg = response.choices[0].message
+        response = model.generate_content(
+            prompt,
+            generation_config={
+                "temperature": 0.0,
+                "max_output_tokens": 10
+            }
+        )
 
-    # --- Gestion des tool calls ---
-    if getattr(msg, "tool_calls", None):
-        for call in msg.tool_calls:
-            name = call.function.name
-            args = json.loads(call.function.arguments)
+        chosen = response.text.strip().lower()
 
-            if name == "get_best_csp_suggestions":
-                return get_best_csp_suggestions(solver, **args)
+        # Vérification que le mot renvoyé est valide
+        if chosen in candidates:
+            return chosen
 
-            if name == "choose_word":
-                return args["word"]
+        print("⚠️ Gemini returned invalid word:", chosen)
 
-    # --- Fallback: CSP-only ---
-    return solver.suggest()[0]
+    except Exception as e:
+        print("⚠️ Gemini error, fallback to CSP:", e)
+
+    # Fallback CSP
+    return candidates[0]

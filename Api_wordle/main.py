@@ -1,6 +1,6 @@
 import sys
 import os
-from llm_agent import llm_choose_next_guess
+from llm_agent import llm_choose_next_guess  # ✅ Ici, on importe notre agent LLM
 
 # =========================================================
 # Make project root importable
@@ -10,13 +10,13 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 # =========================================================
-# Imports
+# Imports FastAPI
 # =========================================================
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# 🔹 utils.py is in THE SAME FOLDER
+# 🔹 utils.py is in the same folder
 from .utils import (
     get_word_of_the_day,
     get_word_list,
@@ -121,7 +121,7 @@ def guess_random_word(word: str):
     }
 
 # =========================================================
-# SOLVER — DAILY WORD
+# SOLVER — DAILY WORD (CSP + LLM)
 # =========================================================
 @app.get("/run-daily")
 def run_solver_daily():
@@ -150,20 +150,22 @@ def run_solver_daily():
         steps.append({"step": step, "guess": guess, "feedback": feedback})
 
         solver.apply_feedback(guess, feedback)
+
+        # ✅ Ici on utilise l'agent LLM pour choisir le prochain mot
         guess = llm_choose_next_guess(solver, steps)
+
         step += 1
 
     return {"steps": steps}
 
 # =========================================================
-# SOLVER — RANDOM WORD
+# SOLVER — RANDOM WORD (CSP + LLM)
 # =========================================================
 @app.get("/run-random")
 def run_solver_random():
     global current_random_word
 
     if current_random_word is None:
-        # If no word selected yet, pick one
         current_random_word = get_random_word_util().upper()
 
     solver = WordleSolver(word_list)
@@ -191,11 +193,13 @@ def run_solver_random():
         steps.append({"step": step, "guess": guess, "feedback": feedback})
 
         solver.apply_feedback(guess, feedback)
+
+        # ✅ LLM next guess
         guess = llm_choose_next_guess(solver, steps)
+
         step += 1
 
     return {"steps": steps}
-
 
 # =========================================================
 # START SERVER

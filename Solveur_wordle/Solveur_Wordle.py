@@ -1,62 +1,15 @@
 import os
-import requests
 from collections import defaultdict, Counter
 
-###########################################################
-# 1a) LOCAL WORD-OF-THE-DAY API
-###########################################################
-LOCAL_DAILY_API = "http://localhost:8000/word-of-the-day/"
-
-def get_feedback_from_daily_api(guess):
-    r = requests.post(LOCAL_DAILY_API + guess.upper()).json()
-    if not r.get("is_word_in_list", True):
-        return None
-    if r.get("is_correct", False):
-        return "GGGGG"
-    fb = []
-    for info in r["character_info"]:
-        if info["scoring"]["correct_idx"]:
-            fb.append("G")
-        elif info["scoring"]["in_word"]:
-            fb.append("Y")
-        else:
-            fb.append("B")
-    return "".join(fb)
-
-###########################################################
-# 1b) LOCAL RANDOM WORD API
-###########################################################
-LOCAL_RANDOM_API = "http://localhost:8000/random-word/"
-
-def get_feedback_from_random_api(guess):
-    r = requests.post(LOCAL_RANDOM_API + guess.upper()).json()
-    if not r.get("is_word_in_list", True):
-        return None
-    if r.get("is_correct", False):
-        return "GGGGG"
-    fb = []
-    for info in r["character_info"]:
-        if info["scoring"]["correct_idx"]:
-            fb.append("G")
-        elif info["scoring"]["in_word"]:
-            fb.append("Y")
-        else:
-            fb.append("B")
-    return "".join(fb)
-
-###########################################################
-# 2) LOAD WORDLIST FROM PROJECT ROOT
-###########################################################
+# ---------- Load wordlist ----------
 def load_wordlist():
     file_path = os.path.join(os.path.dirname(__file__), "..", "word_list.txt")
     with open(file_path, "r", encoding="utf-8") as f:
-        words = [w.strip().lower() for w in f.readlines() if len(w.strip()) == 5]
-    print(f"Loaded {len(words)} words from word_list.txt in project root.")
+        words = [w.strip().lower() for w in f if len(w.strip()) == 5]
+    print(f"Loaded {len(words)} words from word_list.txt")
     return words
 
-###########################################################
-# 3) CSP SOLVER
-###########################################################
+# ---------- CSP Wordle solver ----------
 class WordleSolver:
     def __init__(self, wordlist):
         self.candidates = list(wordlist)
