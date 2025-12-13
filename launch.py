@@ -11,7 +11,7 @@ import socketserver
 # CONFIGURABLE PORTS
 # =========================================================
 API_PORT = 5000       # Port for FastAPI backend
-FRONTEND_PORT = 8080  # Port for frontend HTTP server
+FRONTEND_PORT = 8081  # Port for frontend HTTP server
 
 ROOT_DIR = os.getcwd()
 

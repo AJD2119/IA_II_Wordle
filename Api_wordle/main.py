@@ -1,5 +1,6 @@
 import sys
 import os
+from llm_agent import llm_choose_next_guess
 
 # =========================================================
 # Make project root importable
@@ -149,7 +150,7 @@ def run_solver_daily():
         steps.append({"step": step, "guess": guess, "feedback": feedback})
 
         solver.apply_feedback(guess, feedback)
-        guess = solver.suggest()[0]
+        guess = llm_choose_next_guess(solver, steps)
         step += 1
 
     return {"steps": steps}
@@ -190,7 +191,7 @@ def run_solver_random():
         steps.append({"step": step, "guess": guess, "feedback": feedback})
 
         solver.apply_feedback(guess, feedback)
-        guess = solver.suggest()[0]
+        guess = llm_choose_next_guess(solver, steps)
         step += 1
 
     return {"steps": steps}
