@@ -1,0 +1,1 @@
+#GEMINI_API_KEY = "sk-proj-WFtFeoq2tWMGpL3mjitYg6CwXDFUo44dh-AIzaSyDo78BF8OB6jTohlY-4o6BbAzZJkWWLz9o"
