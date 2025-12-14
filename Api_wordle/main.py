@@ -1,6 +1,8 @@
 import sys
 import os
-from llm_agent import llm_choose_next_guess  # ✅ Ici, on importe notre agent LLM
+import json
+import time
+from fastapi.responses import StreamingResponse
 
 # =========================================================
 # Make project root importable
@@ -12,19 +14,21 @@ if PROJECT_ROOT not in sys.path:
 # =========================================================
 # Imports FastAPI
 # =========================================================
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-# 🔹 utils.py is in the same folder
+# Utils
 from .utils import (
     get_word_of_the_day,
     get_word_list,
     check_character,
     get_random_word as get_random_word_util,
 )
-
 from Solveur_wordle.Solveur_Wordle import WordleSolver
+
+# LLM Manager
+from llm.manager import LLMManager
 
 # =========================================================
 # App setup
@@ -59,14 +63,11 @@ def read_root():
 def get_word_of_the_day_endpoint():
     return {"word": word_of_the_day}
 
-
 @app.post("/word-of-the-day/{word}")
 def send_guess_word(word: str):
     guess_word = word.upper()
-
     if guess_word.lower() not in word_list:
         return {"guess": guess_word, "is_correct": False, "is_word_in_list": False}
-
     if guess_word == word_of_the_day:
         return {"guess": guess_word, "is_correct": True, "is_word_in_list": True}
 
@@ -74,7 +75,6 @@ def send_guess_word(word: str):
         check_character(c, word_of_the_day, i)
         for i, c in enumerate(guess_word)
     ]
-
     return {
         "guess": guess_word,
         "is_correct": False,
@@ -91,16 +91,13 @@ def get_random_word_endpoint():
     current_random_word = get_random_word_util().upper()
     return {"word": current_random_word}
 
-
 @app.post("/random-word/{word}")
 def guess_random_word(word: str):
     global current_random_word
-
     if current_random_word is None:
         return {"error": "No random word generated. Call GET /random-word first."}
 
     guess_word = word.upper()
-
     if guess_word.lower() not in word_list:
         return {"guess": guess_word, "is_correct": False, "is_word_in_list": False}
 
@@ -112,7 +109,6 @@ def guess_random_word(word: str):
         check_character(c, current_random_word, i)
         for i, c in enumerate(guess_word)
     ]
-
     return {
         "guess": guess_word,
         "is_correct": False,
@@ -121,95 +117,93 @@ def guess_random_word(word: str):
     }
 
 # =========================================================
-# SOLVER — DAILY WORD (CSP + LLM)
+# SOLVER — DAILY WORD
 # =========================================================
 @app.get("/run-daily")
-def run_solver_daily():
-    print("RUN DAILY CALLED — LLM SHOULD BE USED")
-    solver = WordleSolver(word_list)
-    guess = "crane"
-    steps = []
-    step = 1
+def run_solver_daily(llm: str = Query("heuristic")):
+    llm_manager = LLMManager(llm)
 
-    while True:
-        response = send_guess_word(guess)
+    def event_generator():
+        solver = WordleSolver(word_list)
+        guess = "crane"
+        steps = []
+        step = 1
 
-        if not response["is_word_in_list"]:
-            break
+        while True:
+            response = send_guess_word(guess)
+            if not response["is_word_in_list"]:
+                break
 
-        if response["is_correct"]:
-            steps.append({"step": step, "guess": guess, "feedback": "GGGGG"})
-            break
+            if response["is_correct"]:
+                payload = {"step": step, "guess": guess, "feedback": "GGGGG"}
+                yield f"data: {json.dumps(payload)}\n\n"
+                break
 
-        feedback = "".join(
-            "G" if c["scoring"]["correct_idx"]
-            else "Y" if c["scoring"]["in_word"]
-            else "B"
-            for c in response["character_info"]
-        )
+            feedback = "".join(
+                "G" if c["scoring"]["correct_idx"]
+                else "Y" if c["scoring"]["in_word"]
+                else "B"
+                for c in response["character_info"]
+            )
 
-        steps.append({"step": step, "guess": guess, "feedback": feedback})
+            payload = {"step": step, "guess": guess, "feedback": feedback}
+            yield f"data: {json.dumps(payload)}\n\n"
 
-        solver.apply_feedback(guess, feedback)
+            steps.append(payload)
+            solver.apply_feedback(guess, feedback)
+            guess = llm_manager.choose_next_guess(solver, steps)
+            step += 1
+            time.sleep(0.2)
 
-        # ✅ Ici on utilise l'agent LLM pour choisir le prochain mot
-        print("ABOUT TO CALL LLM")
-        guess = llm_choose_next_guess(solver, steps)
-
-        step += 1
-
-    return {"steps": steps}
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # =========================================================
-# SOLVER — RANDOM WORD (CSP + LLM)
+# SOLVER — RANDOM WORD
 # =========================================================
 @app.get("/run-random")
-def run_solver_random():
+def run_solver_random(llm: str = Query("heuristic")):
     global current_random_word
-
     if current_random_word is None:
         current_random_word = get_random_word_util().upper()
 
-    solver = WordleSolver(word_list)
-    guess = "crane"
-    steps = []
-    step = 1
+    llm_manager = LLMManager(llm)
 
-    while True:
-        response = guess_random_word(guess)
+    def event_generator():
+        solver = WordleSolver(word_list)
+        guess = "crane"
+        steps = []
+        step = 1
 
-        if not response["is_word_in_list"]:
-            break
+        while True:
+            response = guess_random_word(guess)
+            if not response["is_word_in_list"]:
+                break
 
-        if response["is_correct"]:
-            steps.append({"step": step, "guess": guess, "feedback": "GGGGG"})
-            break
+            if response["is_correct"]:
+                payload = {"step": step, "guess": guess, "feedback": "GGGGG"}
+                yield f"data: {json.dumps(payload)}\n\n"
+                break
 
-        feedback = "".join(
-            "G" if c["scoring"]["correct_idx"]
-            else "Y" if c["scoring"]["in_word"]
-            else "B"
-            for c in response["character_info"]
-        )
+            feedback = "".join(
+                "G" if c["scoring"]["correct_idx"]
+                else "Y" if c["scoring"]["in_word"]
+                else "B"
+                for c in response["character_info"]
+            )
 
-        steps.append({"step": step, "guess": guess, "feedback": feedback})
+            payload = {"step": step, "guess": guess, "feedback": feedback}
+            yield f"data: {json.dumps(payload)}\n\n"
 
-        solver.apply_feedback(guess, feedback)
+            steps.append(payload)
+            solver.apply_feedback(guess, feedback)
+            guess = llm_manager.choose_next_guess(solver, steps)
+            step += 1
+            time.sleep(0.2)
 
-        # ✅ LLM next guess
-        guess = llm_choose_next_guess(solver, steps)
-
-        step += 1
-
-    return {"steps": steps}
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # =========================================================
 # START SERVER
 # =========================================================
 if __name__ == "__main__":
-    uvicorn.run(
-        "Api_wordle.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-    )
+    uvicorn.run("Api_wordle.main:app", host="0.0.0.0", port=8000, reload=True)

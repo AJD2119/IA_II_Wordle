@@ -9,5 +9,7 @@ flask-cors==3.0.10
 # Requêtes HTTP pour le solveur ou frontend
 requests==2.31.0
 
-google-generativeai
-
+# LLM clients
+openai>=1.0.0            # OpenAI GPT
+google-generativeai       # Gemini / Google
+ollama                     # Ollama client (si disponible via pip, sinon via instructions Ollama)

@@ -37,77 +37,133 @@
         </button>
     </div>
 
-    <p id="currentWord" class="mb-4 text-gray-700 font-medium">Mot choisi: …</p>
-
+    <p id="currentWord" class="mb-2 text-gray-700 font-medium">Mot choisi: …</p>
+    <p id="timer" class="mb-4 text-gray-700 font-medium">Temps écoulé: 0.00 s</p>
     <div id="output" class="mt-4 w-full max-w-xl space-y-6"></div>
 
-    <script>
-    // Automatically detect API host (assumes API runs on localhost:5000)
-    const API_HOST = "http://127.0.0.1:5001";
+    <!-- Config JS pour port backend dynamique -->
+    <script src="config.js"></script>
 
-    let currentWordType = null; // 'daily' or 'random'
+    <script>
+    let currentWordType = null; // 'daily' ou 'random'
     let currentWord = null;
+    let eventSource = null;
+
+    let startTime = null;
+    let timerInterval = null;
 
     async function fetchWord(type) {
+        // 🔹 Ferme le flux SSE si existant
+        if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+        }
+
+        // 🔹 Réinitialise l'affichage des étapes
+        document.getElementById("output").innerHTML = "";
+
+        // 🔹 Réinitialise le chrono
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        startTime = null;
+        document.getElementById("timer").textContent = "Temps écoulé: 0.00 s";
+
+        // 🔹 Récupère le mot depuis le backend
         const url = type === 'daily'
             ? `${API_HOST}/word-of-the-day`
             : `${API_HOST}/random-word`;
 
         const res = await fetch(url);
         const data = await res.json();
+
         currentWordType = type;
         currentWord = data.word;
-        document.getElementById("currentWord").textContent = "Mot choisi: " + currentWord;
+
+        document.getElementById("currentWord").textContent =
+            "Mot choisi: " + currentWord;
     }
 
-    async function runSolver() {
+    function startTimer() {
+        startTime = performance.now();
+        document.getElementById("timer").textContent = "Temps écoulé: 0.00 s";
+
+        timerInterval = setInterval(() => {
+            const elapsed = (performance.now() - startTime) / 1000;
+            document.getElementById("timer").textContent = `Temps écoulé: ${elapsed.toFixed(2)} s`;
+        }, 50);
+    }
+
+    function stopTimer() {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        if (startTime !== null) {
+            const elapsed = (performance.now() - startTime) / 1000;
+            document.getElementById("timer").textContent = `Temps final: ${elapsed.toFixed(2)} s`;
+            startTime = null;
+        }
+    }
+
+    function runSolver() {
         if (!currentWordType) {
             alert("Veuillez d'abord choisir Daily ou Random Wordle.");
             return;
         }
 
-        const output = document.getElementById("output");
-        output.innerHTML = "<p class='text-gray-600'>Solving…</p>";
+        startTimer(); // 🔹 Démarre le chrono
 
-        const url = currentWordType === 'daily'
+        const output = document.getElementById("output");
+        output.innerHTML = "";
+
+        if (eventSource) eventSource.close();
+
+        const url = currentWordType === "daily"
             ? `${API_HOST}/run-daily`
             : `${API_HOST}/run-random`;
 
-        const res = await fetch(url);
-        const data = await res.json();
+        eventSource = new EventSource(url);
 
-        output.innerHTML = "";
-        let delay = 0;
+        eventSource.onmessage = (event) => {
+            const step = JSON.parse(event.data);
 
-        data.steps.forEach(step => {
-            setTimeout(() => {
-                const row = document.createElement("div");
-                row.className = "p-4 bg-white shadow rounded-lg";
+            const row = document.createElement("div");
+            row.className = "p-4 bg-white shadow rounded-lg";
 
-                row.innerHTML = `
-                    <h2 class="font-bold text-lg mb-2">Étape ${step.step}</h2>
-                    <div class="flex mb-3">
-                        ${step.guess.split("").map((c,i) =>
-                            `<div class="tile ${step.feedback[i]}">${c.toUpperCase()}</div>`
-                        ).join("")}
-                    </div>
-                    <p class="text-gray-600">Feedback : <b>${step.feedback}</b></p>
-                `;
-                output.appendChild(row);
-            }, delay);
+            row.innerHTML = `
+                <h2 class="font-bold text-lg mb-2">Étape ${step.step}</h2>
+                <div class="flex mb-3">
+                    ${step.guess.split("").map((c,i) =>
+                        `<div class="tile ${step.feedback[i]}">${c.toUpperCase()}</div>`
+                    ).join("")}
+                </div>
+                <p class="text-gray-600">Feedback : <b>${step.feedback}</b></p>
+            `;
 
-            delay += 800;
-        });
+            output.appendChild(row);
+
+            if (step.feedback === "GGGGG") {
+                stopTimer();
+                eventSource.close();
+            }
+        };
+
+        eventSource.onerror = () => {
+            if (eventSource.readyState === EventSource.CLOSED) return;
+            console.error("Erreur SSE réelle");
+            stopTimer();
+            eventSource.close();
+        };
     }
 
-    // Event listeners
-    document.getElementById("dailyBtn").onclick = () => fetchWord('daily');
-    document.getElementById("randomBtn").onclick = () => fetchWord('random');
+    document.getElementById("dailyBtn").onclick = () => fetchWord("daily");
+    document.getElementById("randomBtn").onclick = () => fetchWord("random");
     document.getElementById("solveBtn").onclick = runSolver;
 
-    // Auto-load daily word on page load
-    fetchWord('daily');
-</script>
-
+    // Auto-load daily word
+    fetchWord("daily");
+    </script>
 </body>
 </html>
